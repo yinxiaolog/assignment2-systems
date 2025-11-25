@@ -1,0 +1,3 @@
+|    | Size   |   d_model |   d_ff |   num_layers |   num_heads |   context_length |   forward mean |   forward std |   backward mean |   backward std |
+|---:|:-------|----------:|-------:|-------------:|------------:|-----------------:|---------------:|--------------:|----------------:|---------------:|
+|  0 | small  |       768 |   3072 |           12 |          12 |              128 |            nan |           nan |             nan |            nan |

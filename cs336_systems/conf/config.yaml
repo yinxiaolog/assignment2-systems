@@ -1,0 +1,69 @@
+model:
+    epochs: 2
+    batch_size: 4
+    vocab_size: 10000
+    context_length: 1024
+    rope_theta: 10000
+    device: "cuda"
+    backend: "inductor"
+    world_size: 1
+    warmup_step: 5
+    meas_step: 10
+    size: "small"
+
+size:
+    default:
+        d_model: 768
+        d_ff: 3072
+        num_layers: 12
+        num_heads: 12
+
+    small:
+        d_model: 768
+        d_ff: 3072
+        num_layers: 12
+        num_heads: 12
+
+    medium:
+        d_model: 1024
+        d_ff: 4096
+        num_layers: 24
+        num_heads: 16
+
+    large:
+        d_model: 1280
+        d_ff: 5120
+        num_layers: 36
+        num_heads: 20
+
+    xl:
+        d_model: 1600
+        d_ff: 6400
+        num_layers: 48
+        num_heads: 25
+
+    2.7B:
+        d_model: 2560
+        d_ff: 10240
+        num_layers: 32
+        num_heads: 32    
+
+
+optimizer:
+    name: "AdamW"
+    lr: 1e-3
+
+loss_fn:
+    name: "CrossEntropyLoss"
+
+data:
+    train_dataset_path: "/opt/dataset/cs336/owt_train.npy"
+    val_dataset_path: "/opt/dataset/cs336/owt_valid.npy"
+    tokenizer_path: "/opt/dataset/cs336/owt_train_tokenzier.pkl"
+
+log:
+    step: 100
+    dir: "/opt/log"
+
+swanlab:
+    exp_name: default
