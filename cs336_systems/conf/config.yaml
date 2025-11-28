@@ -57,13 +57,15 @@ loss_fn:
     name: "CrossEntropyLoss"
 
 data:
-    train_dataset_path: "/opt/dataset/cs336/owt_train.npy"
-    val_dataset_path: "/opt/dataset/cs336/owt_valid.npy"
-    tokenizer_path: "/opt/dataset/cs336/owt_train_tokenzier.pkl"
+    train_dataset_path: "/opt/datasets/cs336/owt_train.npy"
+    val_dataset_path: "/opt/datasets/cs336/owt_valid.npy"
+    tokenizer_path: "/opt/datasets/cs336/owt_train_tokenzier.pkl"
 
 log:
     step: 100
-    dir: "/opt/log"
+    dir: "/opt/log/cs336_systems/"
 
 swanlab:
     exp_name: default
+
+nsys: true

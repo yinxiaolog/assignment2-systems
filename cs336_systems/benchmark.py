@@ -1,6 +1,7 @@
 import timeit
 import math
-import gc
+from pathlib import Path
+
 import torch
 import numpy as np
 from torch.nn import CrossEntropyLoss
@@ -13,7 +14,6 @@ import hydra
 from omegaconf import DictConfig
 from loguru import logger as log
 import pandas as pd
-import subprocess
 
 from cs336_basics.model import BasicsTransformerLM, softmax
 from cs336_basics.data import get_batch
@@ -47,22 +47,16 @@ def annotated_scaled_dot_product_attention(
 
     d_k = K.shape[-1]
     with nvtx.range("computing attention acores"):
-        attention_scores = einsum(
-            Q, K, "... query d_k, ... key d_k -> ... query key"
-        ) / math.sqrt(d_k)
+        attention_scores = einsum(Q, K, "... query d_k, ... key d_k -> ... query key") / math.sqrt(d_k)
 
     if mask is not None:
         attention_scores = torch.where(mask, attention_scores, float("-inf"))
 
     with nvtx.range("computing softmax"):
-        attention_weights = softmax(
-            attention_scores, dim=-1
-        )  # Softmax over the key dimension
+        attention_weights = softmax(attention_scores, dim=-1)  # Softmax over the key dimension
 
     with nvtx.range("final matmul"):
-        return einsum(
-            attention_weights, V, "... query key, ... key d_v ->  ... query d_v"
-        )
+        return einsum(attention_weights, V, "... query key, ... key d_v ->  ... query d_v")
 
 
 def profile(cfg: DictConfig):
@@ -90,9 +84,7 @@ def profile(cfg: DictConfig):
 
     # warm-up
     for i in range(cfg.model.warmup_step):
-        x, label = get_batch(
-            npa, batch_size=batch_size, context_length=context_length, device=device
-        )
+        x, label = get_batch(npa, batch_size=batch_size, context_length=context_length, device=device)
         y = model(x).reshape(-1, vocab_size)
         loss = loss_fn(y, label.reshape(-1))
         optim.zero_grad()
@@ -102,10 +94,9 @@ def profile(cfg: DictConfig):
 
     forward_times = []
     backward_times = []
+
     for i in range(cfg.model.meas_step):
-        x, label = get_batch(
-            npa, batch_size=batch_size, context_length=context_length, device=device
-        )
+        x, label = get_batch(npa, batch_size=batch_size, context_length=context_length, device=device)
         forward_start = timeit.default_timer()
         y = model(x).reshape(-1, vocab_size)
         loss = loss_fn(y, label.reshape(-1))
@@ -115,14 +106,12 @@ def profile(cfg: DictConfig):
 
         backward_start = timeit.default_timer()
         loss.backward()
-        optim.step()
         backward_end = timeit.default_timer()
+        optim.step()
         torch.cuda.synchronize()
         forward_time = forward_end - forward_start
         backward_time = backward_end - backward_start
-        log.info(
-            f"step: {i}, forward time: {forward_time}, backward time: {backward_time}"
-        )
+
         forward_times.append(forward_time)
         backward_times.append(backward_time)
 
@@ -131,30 +120,18 @@ def profile(cfg: DictConfig):
     mean = times.mean(dim=-1)
     std = times.std(dim=-1)
     log.info(
-        f"forward mean: {mean[0]:.5f}, formard std: {std[0]:.5f}, backward mean: {mean[1]:.5f}, backward std: {std[1]:.5f}"
+        f"forward sum: {sum[0]:.5f}, forward mean: {mean[0]:.5f}, formard std: {std[0]:.5f}, backward sum: {sum[1]:.5f}, backward mean: {mean[1]:.5f}, backward std: {std[1]:.5f}"
     )
-    r = subprocess.run(["nvidia-smi"])
-    log.info(f"before: {r.stdout}")
-    log.info(f"before: {r.stderr}")
-    # clear gpu memory
-    model.to("cpu")
-    del optim, loss, x, y, label, model
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
-    r = subprocess.run(["nvidia-smi"])
-    log.info(f"after: {r.stdout}")
-    log.info(f"after: {r.stderr}")
     return [round(x.item(), 5) for x in [sum[0], mean[0], std[0], sum[1], mean[1], std[1]]]
 
 
 def profile_nsys(cfg: DictConfig):
     vocab_size = cfg.model.vocab_size
     batch_size = cfg.model.batch_size
-    d_model = cfg.model.d_model
-    d_ff = cfg.model.d_ff
-    num_layers = cfg.model.num_layers
-    num_heads = cfg.model.num_heads
+    d_model = cfg.size[cfg.model.size].d_model
+    d_ff = cfg.size[cfg.model.size].d_ff
+    num_layers = cfg.size[cfg.model.size].num_layers
+    num_heads = cfg.size[cfg.model.size].num_heads
     rope_theta = cfg.model.rope_theta
     npa = np.arange(0, vocab_size, dtype=np.int32)
     context_length = cfg.model.context_length
@@ -174,9 +151,7 @@ def profile_nsys(cfg: DictConfig):
     # warm-up
     with nvtx.range("warm-up"):
         for i in range(cfg.model.warmup_step):
-            x, label = get_batch(
-                npa, batch_size=batch_size, context_length=context_length, device=device
-            )
+            x, label = get_batch(npa, batch_size=batch_size, context_length=context_length, device=device)
             y = model(x).reshape(-1, vocab_size)
             loss = loss_fn(y, label.reshape(-1))
             optim.zero_grad()
@@ -187,56 +162,33 @@ def profile_nsys(cfg: DictConfig):
     forward_times = []
     backward_times = []
     for i in range(cfg.model.meas_step):
-        x, label = get_batch(
-            npa, batch_size=batch_size, context_length=context_length, device=device
-        )
-        #forward_start = timeit.default_timer()
+        x, label = get_batch(npa, batch_size=batch_size, context_length=context_length, device=device)
         with nvtx.range("forward"):
             y = model(x).reshape(-1, vocab_size)
             loss = loss_fn(y, label.reshape(-1))
-            #forward_end = timeit.default_timer()
-            #torch.cuda.synchronize()
         optim.zero_grad()
 
-        #backward_start = timeit.default_timer()
         with nvtx.range("backward"):
             loss.backward()
         with nvtx.range("optim step"):
             optim.step()
-        #backward_end = timeit.default_timer()
         torch.cuda.synchronize()
-        #forward_time = forward_end - forward_start
-        #backward_time = backward_end - backward_start
-        # log.info(
-        #     f"step: {i}, forward time: {forward_time}, backward time: {backward_time}"
-        # )
-        # forward_times.append(forward_time)
-        # backward_times.append(backward_time)
+
+        forward_times.append(0.0)
+        backward_times.append(0.0)
 
     times = torch.tensor([forward_times, backward_times])
+    sum = times.sum(dim=-1)
     mean = times.mean(dim=-1)
     std = times.std(dim=-1)
     log.info(
-        f"forward mean: {mean[0]:.5f}, formard std: {std[0]:.5f}, backward mean: {mean[1]:.5f}, backward std: {std[1]:.5f}"
+        f"forward sum: {sum[0]:.5f}, forward mean: {mean[0]:.5f}, formard std: {std[0]:.5f}, backward sum: {sum[1]:.5f}, backward mean: {mean[1]:.5f}, backward std: {std[1]:.5f}"
     )
-    r = subprocess.run(["nvidia-smi"])
-    log.info(f"before: {r.stdout}")
-    log.info(f"before: {r.stderr}")
-    # clear gpu memory
-    model.to("cpu")
-    del optim, loss, x, y, label, model
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
-    r = subprocess.run(["nvidia-smi"])
-    log.info(f"after: {r.stdout}")
-    log.info(f"after: {r.stderr}")
-    return [round(x.item(), 5) for x in [mean[0], std[0], mean[1], std[1]]]
+    return [round(x.item(), 5) for x in [sum[0], mean[0], std[0], sum[1], mean[1], std[1]]]
 
 
-def benchmark(cfg: DictConfig):
+def benchmark(cfg: DictConfig, nsys: bool = True):
     result = []
-
     d_model = cfg.size[cfg.model.size].d_model
     d_ff = cfg.size[cfg.model.size].d_ff
     num_layers = cfg.size[cfg.model.size].num_layers
@@ -251,7 +203,7 @@ def benchmark(cfg: DictConfig):
             num_heads,
             cfg.model.context_length,
         ]
-        + profile(cfg)
+        + (profile_nsys(cfg) if nsys else profile(cfg))
     )
 
     df = pd.DataFrame(
@@ -272,7 +224,9 @@ def benchmark(cfg: DictConfig):
         ],
     )
     print(df)
-    df.to_markdown(f"{cfg.model.size}-{d_model}-{d_ff}-{num_layers}-{num_heads}-{cfg.model.context_length}")
+    df.to_markdown(
+        Path(cfg.log.dir, f"{cfg.model.size}-{d_model}-{d_ff}-{num_layers}-{num_heads}-{cfg.model.context_length}.md")
+    )
 
 
 def mixed_precision_accumultion():
@@ -345,13 +299,14 @@ def benchmarking_mixed_precision():
 
 @hydra.main(config_path="conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
+    Path(cfg.log.dir).mkdir(parents=True, exist_ok=True)
     # cs336_basics.model.scaled_dot_product_attention = (
     #     annotated_scaled_dot_product_attention
     # )
     # profile(cfg)
     # mixed_precision_accumultion()
     # benchmarking_mixed_precision()
-    benchmark(cfg)
+    benchmark(cfg, nsys=cfg.nsys)
 
 
 if __name__ == "__main__":
