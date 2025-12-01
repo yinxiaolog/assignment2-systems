@@ -17,6 +17,7 @@ function nsys_profile() {
             cs336_systems.benchmark model.size="${size}" \
             model.context_length="${len}" \
             nsys=true
+            exit 1
         done
     done
 }
@@ -34,4 +35,4 @@ function profile() {
     done
 }
 
-profile
+nsys_profile
