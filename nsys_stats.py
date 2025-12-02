@@ -26,7 +26,7 @@ def run_command(cmd: Union[str, list], shell: bool = False, timeout: Optional[fl
 def nsys():
     for size in ("small", "medium", "large", "xl", "2.7B"):
         for length in (128, 256, 512, 1024):
-            cmd = ["nsys", "stats", "-r", "nvtx_sum", f"/opt/cs336_systems/nsys/nsys_profile_{size}_context_length_{length}.sqlite"]
+            cmd = ["nsys", "stats", "-r", "nvtx_sum", f"/opt/cs336_systems/nsys_profile_{size}_context_length_{length}.sqlite"]
             stdout = run_command(cmd)["stdout"]
             # print(stdout)
             try:
@@ -54,4 +54,4 @@ def profile():
             print("+--------+---------+-------+------------+-----------+----------------+-----------------+------------------+-----------------+------------------+-------------------+------------------+")
 
 if __name__ == "__main__":
-    profile()
+    nsys()

@@ -35,4 +35,15 @@ function profile() {
     done
 }
 
-nsys_profile
+function memory_profile() {
+    rm -rf /opt/log/cs336_systems/nsys_profile_*
+    for len in "${context_length[@]}"; do
+        uv run \
+        python -m \
+        cs336_systems.benchmark model.size="2.7B" \
+        model.context_length="${len}" \
+        nsys=true
+    done
+}
+
+memory_profile

@@ -226,7 +226,7 @@ def profile_nsys_mixed_precision(cfg: DictConfig):
     forward_times = []
     backward_times = []
     for i in range(cfg.model.meas_step):
-        with torch.autocast(device_type=device, dtype=torch.float32):
+        with torch.autocast(device_types=device, dtype=torch.float32):
             x, label = get_batch(npa, batch_size=batch_size, context_length=context_length, device=device)
             with nvtx.range("forward"):
                 y = model(x).reshape(-1, vocab_size)
@@ -258,7 +258,7 @@ def benchmark(cfg: DictConfig, nsys: bool = True):
     d_ff = cfg.size[cfg.model.size].d_ff
     num_layers = cfg.size[cfg.model.size].num_layers
     num_heads = cfg.size[cfg.model.size].num_heads
-
+    log.info(f"nsys: {nsys} cfg: {cfg.nsys}")
     result.append(
         [
             cfg.model.size,
@@ -268,7 +268,7 @@ def benchmark(cfg: DictConfig, nsys: bool = True):
             num_heads,
             cfg.model.context_length,
         ]
-        + (profile_nsys_mixed_precision(cfg) if nsys else profile(cfg))
+        + (memory_profiling(cfg) if nsys else profile(cfg))
     )
 
     df = pd.DataFrame(
@@ -360,6 +360,73 @@ def benchmarking_mixed_precision():
             for name, p in model.named_parameters():
                 if p.grad is not None:
                     print(name, p.grad.dtype, p.grad.device)
+
+
+def memory_profiling(cfg: DictConfig):
+    vocab_size = cfg.model.vocab_size
+    batch_size = cfg.model.batch_size
+    d_model = cfg.size[cfg.model.size].d_model
+    d_ff = cfg.size[cfg.model.size].d_ff
+    num_layers = cfg.size[cfg.model.size].num_layers
+    num_heads = cfg.size[cfg.model.size].num_heads
+    rope_theta = cfg.model.rope_theta
+    npa = np.arange(0, vocab_size, dtype=np.int32)
+    context_length = cfg.model.context_length
+    device = cfg.model.device
+    model = BasicsTransformerLM(
+        vocab_size,
+        context_length,
+        d_model,
+        num_layers,
+        num_heads,
+        d_ff,
+        rope_theta=rope_theta,
+    ).to(device)
+    loss_fn = CrossEntropyLoss()
+    optim = AdamW(model.parameters(), lr=cfg.optimizer.lr)
+
+    # warm-up
+    with nvtx.range("warm-up"):
+        for i in range(cfg.model.warmup_step):
+            x, label = get_batch(npa, batch_size=batch_size, context_length=context_length, device=device)
+            y = model(x).reshape(-1, vocab_size)
+            loss = loss_fn(y, label.reshape(-1))
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            torch.cuda.synchronize()
+
+    forward_times = []
+    backward_times = []
+    torch.cuda.memory._record_memory_history(max_entries=1000000)
+    for i in range(cfg.model.meas_step):
+        with torch.autocast(device_type=device, dtype=torch.float32):
+            x, label = get_batch(npa, batch_size=batch_size, context_length=context_length, device=device)
+            with nvtx.range("forward"):
+                y = model(x).reshape(-1, vocab_size)
+                loss = loss_fn(y, label.reshape(-1))
+            optim.zero_grad()
+
+            with nvtx.range("backward"):
+                loss.backward()
+            with nvtx.range("optim step"):
+                optim.step()
+            torch.cuda.synchronize()
+
+            forward_times.append(0.0)
+            backward_times.append(0.0)
+
+    log.info("profile memory")
+    torch.cuda.memory._dump_snapshot(Path(cfg.log.dir, f"{cfg.model.size}-{cfg.model.context_length}.pickle").as_posix())
+    torch.cuda.memory._record_memory_history(enabled=None)
+    times = torch.tensor([forward_times, backward_times])
+    sum = times.sum(dim=-1)
+    mean = times.mean(dim=-1)
+    std = times.std(dim=-1)
+    log.info(
+        f"forward sum: {sum[0]:.5f}, forward mean: {mean[0]:.5f}, formard std: {std[0]:.5f}, backward sum: {sum[1]:.5f}, backward mean: {mean[1]:.5f}, backward std: {std[1]:.5f}"
+    )
+    return [round(x.item(), 5) for x in [sum[0], mean[0], std[0], sum[1], mean[1], std[1]]]
 
 
 @hydra.main(config_path="conf", config_name="config", version_base=None)
