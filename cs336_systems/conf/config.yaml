@@ -69,3 +69,8 @@ swanlab:
     exp_name: default
 
 nsys: true
+
+pytorch_attention:
+    d_model: 16
+    context_length: 256
+    device: cuda
